@@ -54,6 +54,7 @@ def estimate_loss():
         
     model.train()
     return out
+    
 class Head(nn.Module):
     def __init__(self, head_size):
         super().__init__()
@@ -61,17 +62,17 @@ class Head(nn.Module):
         self.query = nn.Linear(n_embed, head_size , bias = False)
         self.value = nn.Linear(n_embed, head_size, bias = False)
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+        self.dropout = dropout
 
     def forward(self, x):
         B, T, C = x.shape
         k = self.key(x)
         q = self.query(x)
-        wei = q @ k.transpose(-2, -1) * C**-0.5
-        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) 
-        wei = F.softmax(wei, dim=-1)
         v = self.value(x)
-        out = wei @ v
-        return out
+        att = F.scaled_dot_product_attention(
+            q, k, v, attn_mask=None, is_causal= True, dropout_p= self.dropout if self.training else 0.0
+          )
+        return att
 
 class MultiHead(nn.Module):
     def __init__(self, num_heads, head_size):
@@ -95,6 +96,15 @@ class FeedForward(nn.Module):
         )
     def forward(self, x):
         return self.net(x)
+
+class RMSNorm(nn.Module):
+    def __init__(self, n_embed, eps=1e-5):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(n_embed))
+    def forward(self,x):
+        rms = torch.sqrt(x.pow(2).mean(-1,keepdim=True) + self.eps)
+        return self.weight * x / rms
     
 class Block(nn.Module):
     def __init__(self, n_embed, n_head):
@@ -102,8 +112,8 @@ class Block(nn.Module):
         head_size = n_embed // n_head
         self.sa = MultiHead(n_head, head_size)
         self.ffwd = FeedForward(n_embed)
-        self.ln1 = nn.LayerNorm(n_embed)
-        self.ln2 = nn.LayerNorm(n_embed)
+        self.ln1 = RMSNorm(n_embed)
+        self.ln2 = RMSNorm(n_embed)
     def forward(self, x):
         x = x + self.sa(self.ln1(x))
         x = x + self.ffwd(self.ln2(x))
@@ -116,7 +126,7 @@ class BigramLanguageModel(nn.Module):
         self.position_table = nn.Embedding(block_size,n_embed)
         self.lm_head = nn.Linear(n_embed, vocab_size)
         self.blocks = nn.Sequential(*[Block(n_embed, n_head=n_head) for _ in range(n_layer)])
-        self.ln_f = nn.LayerNorm(n_embed)
+        self.ln_f = RMSNorm(n_embed)
         
     def forward(self, idx, targets=None):
         #idx and targets are both (B,T) tensor of integers
