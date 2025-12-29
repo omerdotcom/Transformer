@@ -12,8 +12,7 @@ It follows **Andrej Karpathy’s NanoGPT / “Let’s build GPT” lecture serie
 
 ## Features (So Far)
 - Token embeddings  
-- Positional embeddings  
-<<<<<<< HEAD
+- Positional embeddings
 - Multi-head Flash-attention
 - Feed-forward networks  
 - RMS normalization  
